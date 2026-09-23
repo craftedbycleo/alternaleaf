@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Alternaleaf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink: #111112;
+    --muted: #8b8b90;
+    --bg-1: #fbeaf4;   /* soft pink, top */
+    --bg-2: #ffffff;   /* white, bottom */
+    --dot: rgba(17,17,18,.10);
+    --radius: 9px;
+    --ease: cubic-bezier(.22,1,.36,1);
+
+    /* Layout guides for the tile positions below.
+       The copy is a fixed 850px wide, but the tiles are placed in percentages —
+       so on a narrower window the tiles close in on text that hasn't shrunk.
+       These let each tile hold a minimum clearance from the copy. */
+    /* The column is 850px, but never so wide that the side tiles have nowhere
+       left to sit — below ~1270px it gives way so the composition holds. */
+    --col: min(850px, calc(100vw - 2 * (46px + 12.2vw) - 40px));
+    --col-half: calc(var(--col) / 2);
+    --copy-half: 100px;               /* half the copy block's height */
+    --h-gap: 32px;                    /* gap beside the longest line  */
+    --v-gap: 40px;                    /* min gap above / below it     */
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{ height: 100%; }
+
+  body{
+    margin: 0;
+    font-family: "Inter Tight", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg-2);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* ---------- Stage ---------- */
+
+  .stage{
+    position: relative;
+    min-height: 100svh;
+    display: grid;
+    place-items: center;
+    padding: 6vh 24px;
+    overflow: hidden;
+    isolation: isolate;
+    background:
+      linear-gradient(180deg, var(--bg-1) 0%, #fdf4f9 30%, var(--bg-2) 72%);
+  }
+
+  /* Square dot grid: 3×3px squares on a 17px pitch (3 + 14px gap).
+     Drawn as an inline SVG tile because CSS gradients can only make circles or
+     stripes, not isolated squares. To recolour, edit fill / fill-opacity below —
+     %23111112 is the url-encoded form of #111112. */
+  .stage::before{
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='17' height='17'%3E%3Crect width='3' height='3' fill='%23D8D8D8' fill-opacity='0.4'/%3E%3C/svg%3E");
+    background-size: 17px 17px;
+    /* Wide ellipse, fading linearly from the very centre outwards — no solid
+       plateau, which is what keeps the falloff smooth rather than ring-like. */
+    -webkit-mask-image: radial-gradient(62% 59% at 50% 52%, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+            mask-image: radial-gradient(62% 59% at 50% 52%, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 100%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ---------- Replay button (preview aid — delete this block, its markup and
+       its listener when the page goes live) ---------- */
+
+  .replay{
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    gap: .55em;
+    padding: 8px 15px 8px 12px;
+    font-family: inherit;
+    font-size: .78rem;
+    letter-spacing: .005em;
+    color: #fff;
+    background: var(--ink);
+    border: 1px solid transparent;
+    border-radius: 999px;
+    cursor: pointer;
+    opacity: 0;
+    animation: fadeIn .6s var(--ease) forwards;
+    animation-delay: 1500ms;   /* stays out of the way until the reveal is done */
+    transition: color .3s var(--ease), background .3s var(--ease), border-color .3s var(--ease);
+  }
+  .replay:hover{ background: #000; }
+  /* the centring transform has to be repeated here, or the button jumps left */
+  .replay:active{ transform: translateX(-50%) scale(.97); }
+  .replay:focus-visible{ outline: 2px solid var(--ink); outline-offset: 3px; }
+  .replay svg{ transition: transform .55s var(--ease); }
+  .replay:hover svg{ transform: rotate(-180deg); }
+  .replay kbd{
+    font: inherit;
+    font-size: .7rem;
+    line-height: 1;
+    padding: 3px 5px 2px;
+    margin-left: .1em;
+    border: 1px solid rgba(255,255,255,.28);
+    border-radius: 4px;
+    background: rgba(255,255,255,.12);
+  }
+
+  @keyframes fadeIn{ to{ opacity: 1; } }
+
+  /* ---------- Centre copy ---------- */
+
+  .copy{
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: var(--col);   /* 850px, shrinking only once the tiles run out of room */
+    text-align: center;
+  }
+
+  .headline{
+    margin: 0;
+    font-weight: 400;
+    font-size: clamp(1.75rem, 3.6vw, 44px);
+    line-height: 1.12;
+    letter-spacing: -0.022em;
+    text-wrap: balance;
+  }
+
+  /* Each word is its own animated unit. No movement at all — the words sit in
+     their final position from the first frame and resolve out of a blur, so the
+     reveal reads as a wave of focus travelling through the sentence. */
+  .word{
+    display: inline-block;
+    opacity: 0;
+    filter: blur(16px);
+    animation: wordIn 680ms cubic-bezier(.38,0,.2,1) forwards;
+    animation-delay: calc(var(--i) * 34ms + 120ms);
+  }
+
+  @keyframes wordIn{
+    to{ opacity: 1; filter: blur(0); }
+  }
+
+  .cta{
+    display: inline-flex;
+    align-items: center;
+    gap: .5em;
+    margin-top: calc(clamp(1.6rem, 3.2vw, 2.6rem) - 10px);
+    font-size: clamp(.85rem, 1.05vw, .95rem);
+    font-weight: 500;
+    letter-spacing: .005em;
+    color: var(--muted);
+    text-decoration: none;
+    opacity: 0;
+    transform: translateY(8px);
+    animation: fadeUp .8s var(--ease) forwards;
+    animation-delay: 1200ms;
+    transition: color .35s var(--ease);
+  }
+  .cta:hover{ color: var(--ink); }
+  .cta svg{ transition: transform .45s var(--ease); }
+  .cta:hover svg{ transform: translateX(5px); }
+
+  @keyframes fadeUp{ to{ opacity: 1; transform: none; } }
+
+  /* ---------- Floating images ---------- */
+
+  /* Layer that owns the tiles. Absolutely positioned so the percentages below
+     resolve against the whole stage rather than the centred grid area. */
+  .tiles{
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .tile{
+    position: absolute;
+    margin: 0;          /* <figure> has a UA default of 1em 40px — kill it */
+    left: var(--x);
+    top: var(--y);
+    width: var(--w);
+    aspect-ratio: var(--ar);
+    z-index: 1;
+    /* parallax offset lives here, entrance animation lives on the child */
+    transform: translate3d(var(--px, 0px), var(--py, 0px), 0);
+    will-change: transform;
+  }
+
+  .tile__inner{
+    width: 100%;
+    height: 100%;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: #ece9e6;
+    opacity: 0;
+    transform: translateY(26px) scale(.96);
+    animation: tileIn 1.1s var(--ease) forwards;
+    animation-delay: calc(var(--d) * 90ms + 260ms);
+  }
+
+  .tile img{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  @keyframes tileIn{
+    to{ opacity: 1; transform: none; }
+  }
+
+  /* ---------- Positions (desktop) ---------- */
+  /* --x/--y = position, --w = width, --ar = aspect ratio, --d = entrance order,
+     data-depth on the element = how far it drifts with the cursor */
+
+  /* --xw / --yw / --b are the positions on a wide desktop. The calc()s under
+     them are floors, not new positions: on a wide screen the percentage always
+     wins, and only once the window narrows does the clearance take over. */
+
+  .t1{ --xw: 17%;   --b:  63.3%; --w: clamp(120px, 13vw, 215px); --ar: 16/10; --d: 0; }
+  .t2{ --xw: 68%;   --b:  63.3%; --w: clamp(95px, 9.2vw, 150px); --ar: 1/1.05; --d: 1; }
+  .t3{ --yw: 55.5%; --w: clamp(100px, 9.8vw, 160px); --ar: 1/1.13; --d: 3; }
+  .t4{ --xw: 46%;   --yw: 67.5%; --w: clamp(90px, 8.4vw, 137px);  --ar: 1/.82;  --d: 4; }
+  .t5{ --yw: 58.5%; --w: clamp(115px, 12.2vw, 200px);--ar: 16/11;  --d: 2; }
+
+  /* Above the copy — anchored from the bottom, so they lift away as the
+     window gets shorter instead of sliding down onto the first line. */
+  .t1, .t2{
+    --x: var(--xw);
+    top: auto;
+    bottom: max(var(--b), calc(50% + var(--copy-half) + var(--v-gap)));
+  }
+
+  /* Beside the copy — tied to the edge of the longest LINE of text (measured in
+     JS into --text-half), not to the 850px box. The box is much wider than the
+     centred lines inside it, so measuring against it left a phantom gap. */
+  .t3{
+    --y: var(--yw);
+    --x: max(20px, calc(50% - var(--text-half, var(--col-half)) - var(--h-gap) - var(--w)));
+  }
+  .t5{
+    --y: var(--yw);
+    --x: min(calc(100% - 20px - var(--w)),
+             calc(50% + var(--text-half, var(--col-half)) + var(--h-gap)));
+  }
+
+  /* Below the copy. */
+  .t4{
+    --x: var(--xw);
+    --y: max(var(--yw), calc(50% + var(--copy-half) + var(--v-gap)));
+  }
+
+  /* ---------- Desktop ---------- */
+  /* Bigger screens get a wider gap; laptops keep the tighter 32px. */
+
+  @media (min-width: 1600px){
+    :root{ --h-gap: 52px; }
+  }
+
+  /* ---------- Tablet / mobile ---------- */
+
+  @media (max-width: 860px){
+    /* back to plain top-anchored percentages — the clearance rules above are
+       for the desktop composition only, and the copy fills the width again */
+    .t1, .t2{ top: var(--y); bottom: auto; }
+    .copy{ max-width: 850px; }
+    .t1{ --x: calc(11% + 40px); --y: calc(20% + 16px); --w: 32vw; }
+    .t2{ --x: calc(64% + 40px); --y: calc(18% + 16px); --w: 23vw; }
+    .t3{ --x: calc(7%  + 40px); --y: calc(65% + 16px); --w: 25vw; }
+    .t4{ --x: calc(41% + 40px); --y: calc(73% + 16px); --w: 21vw; }
+    .t5{ --x: calc(64% + 40px); --y: calc(63% + 16px); --w: 28vw; }
+  }
+
+  @media (max-width: 520px){
+    .headline{ font-size: clamp(1.5rem, 6.4vw, 2rem); }
+    .t1{ --x: calc(6%  + 40px); --y: calc(18% + 16px); --w: 38vw; }
+    .t2{ --x: calc(62% + 40px); --y: calc(15% + 16px); --w: 27vw; }
+    .t3{ --x: calc(4%  + 40px); --y: calc(69% + 16px); --w: 29vw; }
+    .t4{ --x: calc(39% + 40px); --y: calc(79% + 16px); --w: 23vw; }
+    .t5{ --x: calc(56% + 30px); --y: calc(66% + 16px); --w: 32vw; }
+  }
+
+  /* ---------- Accessibility ---------- */
+
+  @media (prefers-reduced-motion: reduce){
+    .replay{ animation: none !important; opacity: 1 !important; }
+    .word, .tile__inner, .cta{
+      animation-duration: .01ms !important;
+      animation-delay: 0ms !important;
+      opacity: 1 !important;
+      filter: none !important;
+      transform: none !important;
+    }
+    .tile{ transform: none !important; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- Preview aid: replays the load animation. Remove before shipping. -->
+  <button class="replay" id="replay" type="button">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M14 8A6 6 0 1 1 12.2 3.8M14 1v3.4h-3.4"
+            stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    Replay
+    <kbd>R</kbd>
+  </button>
+
+  <main class="stage" id="stage">
+
+    <!-- Nature placeholders (stable Picsum ids). Swap each src for your own asset;
+         the crop ratio is set per tile in CSS, so any image will fill correctly. -->
+    <div class="tiles">
+      <figure class="tile t1" data-depth="1.00">
+        <div class="tile__inner"><img src="https://picsum.photos/id/1018/860/540" alt="" /></div>
+      </figure>
+
+      <figure class="tile t2" data-depth="0.55">
+        <div class="tile__inner"><img src="https://picsum.photos/id/1016/600/630" alt="" /></div>
+      </figure>
+
+      <figure class="tile t3" data-depth="0.80">
+        <div class="tile__inner"><img src="https://picsum.photos/id/1039/640/720" alt="" /></div>
+      </figure>
+
+      <figure class="tile t4" data-depth="1.30">
+        <div class="tile__inner"><img src="https://picsum.photos/id/1043/560/460" alt="" /></div>
+      </figure>
+
+      <figure class="tile t5" data-depth="0.70">
+        <div class="tile__inner"><img src="https://picsum.photos/id/1015/800/550" alt="" /></div>
+      </figure>
+    </div>
+
+    <div class="copy" id="copy">
+      <h1 class="headline" id="headline">Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.</h1>
+      <a class="cta" href="#">
+        Mehr erfahren
+        <svg width="16" height="10" viewBox="0 0 16 10" fill="none" aria-hidden="true">
+          <path d="M10.8 1 15 5m0 0-4.2 4M15 5H1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+    </div>
+
+  </main>
+
+<script>
+(function () {
+  /* ---------- 0. Replay button (preview aid) ---------- */
+  document.getElementById('replay')
+    .addEventListener('click', () => location.reload());
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'r' && e.key !== 'R') return;
+    // leave Cmd+R / Ctrl+R to the browser so it isn't handled twice
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // and don't hijack the key while anything is being typed into
+    const el = e.target;
+    if (el.isContentEditable || /^(input|textarea|select)$/i.test(el.tagName)) return;
+    location.reload();
+  });
+
+  /* ---------- 1. Split the headline into words for the stagger ---------- */
+  const headline = document.getElementById('headline');
+  const words = headline.textContent.trim().split(/\s+/);
+  headline.setAttribute('aria-label', words.join(' '));
+  headline.innerHTML = words
+    .map((w, i) => `<span class="word" style="--i:${i}">${w}</span>`)
+    .join(' ');
+
+  /* ---------- 1b. Measure the longest line so the side tiles can sit against
+       the text itself rather than its much wider container ---------- */
+  function measureText() {
+    const words = headline.querySelectorAll('.word');
+    if (!words.length) return;
+    const lines = new Map();               // group the words by their line
+    for (const w of words) {
+      const r = w.getBoundingClientRect();
+      const key = Math.round(r.top);
+      const cur = lines.get(key) || [Infinity, -Infinity];
+      lines.set(key, [Math.min(cur[0], r.left), Math.max(cur[1], r.right)]);
+    }
+    let widest = 0;
+    for (const [l, r] of lines.values()) widest = Math.max(widest, r - l);
+    document.documentElement.style.setProperty('--text-half', (widest / 2) + 'px');
+  }
+
+  measureText();
+  // the webfont lands after first paint and changes the measurement
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureText);
+  let rid;
+  window.addEventListener('resize', () => {
+    cancelAnimationFrame(rid);
+    rid = requestAnimationFrame(measureText);
+  });
+
+  /* ---------- 2. Very soft cursor parallax ---------- */
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced || window.matchMedia('(hover: none)').matches) return;
+
+  const tiles = [...document.querySelectorAll('.tile')].map(el => ({
+    el,
+    depth: parseFloat(el.dataset.depth) || 1,
+    x: 0, y: 0
+  }));
+  const AMPLITUDE = 8;    // max drift in px at depth 1 — keep this small, it's a whisper
+  const EASE      = 0.055; // lower = slower, floatier follow
+
+  let targetX = 0, targetY = 0;
+  let running = false;
+
+  function onMove(e) {
+    targetX = (e.clientX / window.innerWidth  - 0.5) * 2; // -1 … 1
+    targetY = (e.clientY / window.innerHeight - 0.5) * 2;
+    if (!running) { running = true; requestAnimationFrame(tick); }
+  }
+
+  function tick() {
+    let moving = false;
+
+    for (const t of tiles) {
+      const tx = -targetX * AMPLITUDE * t.depth;
+      const ty = -targetY * AMPLITUDE * t.depth * 0.75;
+      t.x += (tx - t.x) * EASE;
+      t.y += (ty - t.y) * EASE;
+      t.el.style.setProperty('--px', t.x.toFixed(2) + 'px');
+      t.el.style.setProperty('--py', t.y.toFixed(2) + 'px');
+      if (Math.abs(tx - t.x) > 0.05 || Math.abs(ty - t.y) > 0.05) moving = true;
+    }
+
+    if (moving) requestAnimationFrame(tick);
+    else running = false;
+  }
+
+  window.addEventListener('mousemove', onMove, { passive: true });
+  window.addEventListener('mouseleave', () => { targetX = 0; targetY = 0;
+    if (!running) { running = true; requestAnimationFrame(tick); } });
+})();
+</script>
+</body>
+</html>
